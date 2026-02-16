@@ -1,0 +1,47 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Miraflores", "lat": -12.121, "lon": -77.029 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-77.05,-12.11],
+          [-77.02,-12.11],
+          [-77.02,-12.14],
+          [-77.05,-12.14],
+          [-77.05,-12.11]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "San Isidro", "lat": -12.097, "lon": -77.036 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-77.06,-12.09],
+          [-77.02,-12.09],
+          [-77.02,-12.12],
+          [-77.06,-12.12],
+          [-77.06,-12.09]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Surco", "lat": -12.145, "lon": -76.99 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-77.02,-12.13],
+          [-76.96,-12.13],
+          [-76.96,-12.18],
+          [-77.02,-12.18],
+          [-77.02,-12.13]
+        ]]
+      }
+    }
+  ]
+}
