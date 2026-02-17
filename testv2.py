@@ -16,14 +16,14 @@ st.set_page_config(
     layout="wide", page_title="Red Nimbus - Weather Dashboard", page_icon="nimbu.ico"
 )
 load_dotenv()
-API_KEY = os.getenv("OPENWEATHER_API_KEY")
+# API_KEY = os.getenv("OPENWEATHER_API_KEY")
 
 
 if "zoom" not in st.session_state:
     st.session_state.zoom = 10
 
 st.title("LIMA")
-st.subheader("Mapa de Temperatura")
+st.subheader("Mapa de Temperatura 3D")
 
 
 # ---------------------------------------------------
@@ -38,79 +38,169 @@ def load_map_data():
 geojson = load_map_data()
 
 
-# USANDO API DE OPEN
-@st.cache_data(ttl=900)
-def get_weather_datav2(lat, lon):
-    ulr = "https://api.open-meteo.com/v1/forecast"
+## NUEVA FUNCION PARA OBTENER DATOS DE CADA DISTRITO
+def get_single_district_weather(feature):
+    """Funcion que sera ejecutada en paralelo para cada distrito"""
+    props = feature["properties"]
+    lat, lon = props["lat"], props["lon"]
+    name = props["DISTRITO"]
+
+    url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": lat,
         "longitude": lon,
-        "hourly": "temperature_2m",
         "current": ["temperature_2m", "wind_speed_10m", "relative_humidity_2m"],
         "timezone": "America/Lima",
         "wind_speed_unit": "ms",
     }
     try:
-        response = requests.get(ulr, params=params)
-        # response.raise_for_status()
-        return response.json()
-    except requests.exceptions.Timeout:
-        st.error("⚠️ Error: La API tardó demasiado en responder. Intenta nuevamente.")
-        return None
-    except requests.exceptions.RequestException as e:
-        st.error(f"❌ Error de conexión: {str(e)}")
-        return None
-    except ValueError:
-        st.error("❌ Error: Respuesta inválida de la API")
-        return None
+        response = requests.get(url, params=params, timeout=5)
+        data = response.json()
+        return {
+            "name": name,
+            "temperature": data["current"]["temperature_2m"],
+            "humidity": data["current"]["relative_humidity_2m"],
+            "wind": data["current"]["wind_speed_10m"],
+            "time": data["current"]["time"],
+        }
+    except:
+        return {
+            "name": name,
+            "temperature": 20,
+            "humidity": 70,
+            "wind": 5,
+            "time": datetime.now().isoformat(),
+        }
 
+
+# Usanmos session_state para que una vex cargado. no se repita al interactuar con el mapa
+if "master_df" not in st.session_state:
+    with st.status(
+        "📡 Sincronizando datos de distritos en tiempo real...", expanded=True
+    ) as status:
+        st.write("Iniciando peticiones paralelas a la API...")
+
+        # Se ejecuta las peticiones en paralelo (15 hilos a la vez)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+            weahter_results = list(
+                executor.map(get_single_district_weather, geojson["features"])
+            )
+        st.write("Procesando geometrias y capas 3D...")
+        weather_map = {res["name"]: res for res in weahter_results}
+        district_data = []
+        text_data = []
+
+        for feature in geojson["features"]:
+            props = feature["properties"]
+            w = weather_map.get(props["DISTRITO"])
+
+            props["temperature"] = w["temperature"]
+            props["humidity"] = w["humidity"]
+            props["wind"] = w["wind"]
+            props["fecha"] = w["time"]
+            props["elevation"] = w["temperature"] * 150
+
+            district_data.append(
+                {
+                    "District": props["DISTRITO"],
+                    "Fecha": datetime.strptime(w["time"], "%Y-%m-%dT%H:%M"),
+                    "Temperature": w["temperature"],
+                    "Humidity": w["humidity"],
+                    "Wind": w["wind"],
+                }
+            )
+            text_data.append(
+                {
+                    "position": [props["lon"], props["lat"], props["elevation"] + 100],
+                    "text": props["DISTRITO"],
+                }
+            )
+        st.session_state.master_df = pd.DataFrame(district_data)
+        st.session_state.enriched_geojson = geojson
+        st.session_state.text_layer_data = text_data
+        status.update(
+            label="✅ Datos cargados correctamente", state="complete", expanded=False
+        )
+
+# Recuperamos datos de la sesión
+df = st.session_state.master_df
+geojson = st.session_state.enriched_geojson
+text_data = st.session_state.text_layer_data
+
+# USANDO API DE OPEN ANTIGUO FUNCION
+# @st.cache_data(ttl=900)
+# def get_weather_datav2(lat, lon):
+#     ulr = "https://api.open-meteo.com/v1/forecast"
+#     params = {
+#         "latitude": lat,
+#         "longitude": lon,
+#         "hourly": "temperature_2m",
+#         "current": ["temperature_2m", "wind_speed_10m", "relative_humidity_2m"],
+#         "timezone": "America/Lima",
+#         "wind_speed_unit": "ms",
+#     }
+#     try:
+#         response = requests.get(ulr, params=params)
+#         # response.raise_for_status()
+#         return response.json()
+#     except requests.exceptions.Timeout:
+#         st.error("⚠️ Error: La API tardó demasiado en responder. Intenta nuevamente.")
+#         return None
+#     except requests.exceptions.RequestException as e:
+#         st.error(f"❌ Error de conexión: {str(e)}")
+#         return None
+#     except ValueError:
+#         st.error("❌ Error: Respuesta inválida de la API")
+#         return None
+
+
+# # ---------------------------------------------------
+# # ENRICH GEOJSON WITH WEATHER
+# # ---------------------------------------------------
+# with st.spinner("Cargando datos meteorologicos por distrito..."):
+#     district_data = []
+#     text_data = []
+
+#     for feature in geojson["features"]:
+#         props = feature["properties"]
+#         name = props["DISTRITO"]
+#         lat = props["lat"]
+#         lon = props["lon"]
+
+#         weather = get_weather_datav2(lat, lon)
+
+#         props["temperature"] = weather["current"]["temperature_2m"]
+#         iso_date = weather["current"]["time"]
+#         # props["fecha"] = datetime.strptime(iso_date, "%Y-%m-%dT%H:%M")
+#         props["fecha"] = weather["current"]["time"]
+#         props["humidity"] = weather["current"]["relative_humidity_2m"]
+#         props["wind"] = weather["current"]["wind_speed_10m"]
+#         # elevacion
+#         props["elevation"] = weather["current"]["temperature_2m"] * 150
+
+#         district_data.append(
+#             {
+#                 "District": name,
+#                 "Fecha": datetime.strptime(iso_date, "%Y-%m-%dT%H:%M"),
+#                 "Temperature": weather["current"]["temperature_2m"],
+#                 "Humidity": weather["current"]["relative_humidity_2m"],
+#                 "Wind": weather["current"]["wind_speed_10m"],
+#             }
+#         )
+#         text_data.append(
+#             {
+#                 "position": [lon, lat, props["elevation"] + 100],
+#                 "text": name,
+#                 # "Fecha": weather["current"]["time"],
+#             }
+#         )
+
+#     df = pd.DataFrame(district_data)
 
 # ---------------------------------------------------
-# ENRICH GEOJSON WITH WEATHER
+# 3D MAP
 # ---------------------------------------------------
-with st.spinner("Cargando datos meteorologicos por distrito..."):
-    district_data = []
-    text_data = []
-
-    for feature in geojson["features"]:
-        props = feature["properties"]
-        name = props["DISTRITO"]
-        lat = props["lat"]
-        lon = props["lon"]
-
-        weather = get_weather_datav2(lat, lon)
-
-        props["temperature"] = weather["current"]["temperature_2m"]
-        iso_date = weather["current"]["time"]
-        # props["fecha"] = datetime.strptime(iso_date, "%Y-%m-%dT%H:%M")
-        props["fecha"] = weather["current"]["time"]
-        props["humidity"] = weather["current"]["relative_humidity_2m"]
-        props["wind"] = weather["current"]["wind_speed_10m"]
-        # elevacion
-        props["elevation"] = weather["current"]["temperature_2m"] * 150
-
-        district_data.append(
-            {
-                "District": name,
-                "Fecha": datetime.strptime(iso_date, "%Y-%m-%dT%H:%M"),
-                "Temperature": weather["current"]["temperature_2m"],
-                "Humidity": weather["current"]["relative_humidity_2m"],
-                "Wind": weather["current"]["wind_speed_10m"],
-            }
-        )
-        text_data.append(
-            {
-                "position": [lon, lat, props["elevation"] + 100],
-                "text": name,
-                # "Fecha": weather["current"]["time"],
-            }
-        )
-
-    df = pd.DataFrame(district_data)
-
-    # ---------------------------------------------------
-    # 3D MAP
-    # ---------------------------------------------------
 view_state = pdk.ViewState(
     latitude=-12.0464,
     longitude=-77.0428,
