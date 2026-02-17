@@ -5,6 +5,8 @@ import requests
 import json
 import plotly.express as px
 import os
+import concurrent.futures
+from datetime import datetime
 from dotenv import load_dotenv
 
 # ---------------------------------------------------
@@ -20,7 +22,7 @@ API_KEY = os.getenv("OPENWEATHER_API_KEY")
 if "zoom" not in st.session_state:
     st.session_state.zoom = 10
 
-st.title("🏙️ Lima en Capas")
+st.title("LIMA")
 st.subheader("Mapa de Temperatura")
 
 
@@ -34,36 +36,33 @@ def load_map_data():
 
 
 geojson = load_map_data()
-# ---------------------------------------------------
-# WEATHER FUNCTION
-# ---------------------------------------------------
 
 
-# USANDO API DE OPENWEATHER EN TIEMPO REAL (CON CACHE DE 15 MINUTOS)
+# USANDO API DE OPEN
 @st.cache_data(ttl=900)
-def get_weather(lat, lon):
-    if not API_KEY:
-        # Fallback para desarrollo sin API Key
-        import random
-
-        return {
-            "temp": random.uniform(18, 26),
-            "humidity": random.randint(60, 90),
-            "wind": random.uniform(2, 7),
-        }
-    url = (
-        f"https://api.openweathermap.org/data/2.5/weather"
-        f"?lat={lat}&lon={lon}&appid={API_KEY}&units=metric"
-    )
+def get_weather_datav2(lat, lon):
+    ulr = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "hourly": "temperature_2m",
+        "current": ["temperature_2m", "wind_speed_10m", "relative_humidity_2m"],
+        "timezone": "America/Lima",
+        "wind_speed_unit": "ms",
+    }
     try:
-        r = requests.get(url).json()
-        return {
-            "temp": r["main"]["temp"],
-            "humidity": r["main"]["humidity"],
-            "wind": r["wind"]["speed"],
-        }
-    except:
-        return {"temp": 20, "humidity": 70, "wind": 5}
+        response = requests.get(ulr, params=params)
+        # response.raise_for_status()
+        return response.json()
+    except requests.exceptions.Timeout:
+        st.error("⚠️ Error: La API tardó demasiado en responder. Intenta nuevamente.")
+        return None
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ Error de conexión: {str(e)}")
+        return None
+    except ValueError:
+        st.error("❌ Error: Respuesta inválida de la API")
+        return None
 
 
 # ---------------------------------------------------
@@ -79,23 +78,32 @@ with st.spinner("Cargando datos meteorologicos por distrito..."):
         lat = props["lat"]
         lon = props["lon"]
 
-        weather = get_weather(lat, lon)
+        weather = get_weather_datav2(lat, lon)
 
-        props["temperature"] = weather["temp"]
-        props["humidity"] = weather["humidity"]
-        props["wind"] = weather["wind"]
+        props["temperature"] = weather["current"]["temperature_2m"]
+        iso_date = weather["current"]["time"]
+        # props["fecha"] = datetime.strptime(iso_date, "%Y-%m-%dT%H:%M")
+        props["fecha"] = weather["current"]["time"]
+        props["humidity"] = weather["current"]["relative_humidity_2m"]
+        props["wind"] = weather["current"]["wind_speed_10m"]
         # elevacion
-        props["elevation"] = weather["temp"] * 150
+        props["elevation"] = weather["current"]["temperature_2m"] * 150
+
         district_data.append(
             {
                 "District": name,
-                "Temperature": weather["temp"],
-                "Humidity": weather["humidity"],
-                "Wind": weather["wind"],
+                "Fecha": datetime.strptime(iso_date, "%Y-%m-%dT%H:%M"),
+                "Temperature": weather["current"]["temperature_2m"],
+                "Humidity": weather["current"]["relative_humidity_2m"],
+                "Wind": weather["current"]["wind_speed_10m"],
             }
         )
         text_data.append(
-            {"position": [lon, lat, props["elevation"] + 100], "text": name}
+            {
+                "position": [lon, lat, props["elevation"] + 100],
+                "text": name,
+                # "Fecha": weather["current"]["time"],
+            }
         )
 
     df = pd.DataFrame(district_data)
@@ -116,8 +124,8 @@ layer_geo = pdk.Layer(
     pickable=True,
     filled=True,
     get_fill_color="[properties.temperature * 10, 120 - properties.temperature, 255 - properties.temperature * 8]",
-    getLineColor="[255, 255, 255]",
-    lineWidthMinPixels=1,
+    getLineColor="[0, 0, 0]",
+    lineWidthMinPixels=3,
     # 3D
     extruded=True,
     get_elevation="properties.elevation",
@@ -128,23 +136,23 @@ layer_geo = pdk.Layer(
 
 zoom = view_state.zoom
 size_scale = 10 * (2**zoom)
-opactity = 255 if st.session_state.zoom >= 9 else 0  # Ajusta el tamaño según el
+# opactity = 255 if st.session_state.zoom >= 9 else 0  # Ajusta el tamaño según el
 text_layer = pdk.Layer(
     "TextLayer",
     text_data,
     pickable=False,
     get_position="position",
     get_text="text",
-    sizeMinPixels=6,
+    # sizeMinPixels=6,
     sizeMaxPixels=10,
-    get_color="[255, 255, 255, opactity]",  # Ajusta la opacidad según el zoom
+    get_color="[255, 255, 255]",  # Ajusta la opacidad según el zoom
     # getPixelOffset="[0, -5]",  # Mover el texto hacia arriba
     background=True,
     get_background_color="[0, 0, 0, 180]",
     backgroundBorderRadius=3,
     backgroundPadding=[2, 2],
     get_alignment_baseline="'bottom'",
-    # get_text_anchor="'middle'",
+    get_text_anchor="'middle'",
     billboard=True,
     # sizeUnits="meters",  # 👈 clave
     get_size=16,
@@ -156,9 +164,10 @@ text_layer = pdk.Layer(
 deck = pdk.Deck(
     layers=[layer_geo, text_layer],
     initial_view_state=view_state,
-    map_style="mapbox://styles/mapbox/dark-v10",
+    # map_style="mapbox://styles/mapbox/dark-v10",
     tooltip={
         "html": "<b>{DISTRITO}</b><br/>"
+        "Fecha: {fecha}<br/>"
         "Temp: {temperature}°C<br/>"
         "Humedad: {humidity}%<br/>"
         "Viento: {wind} m/s",
@@ -173,21 +182,6 @@ deck = pdk.Deck(
 
 st.pydeck_chart(deck)
 
-# # ---------------------------------------------------
-# # SNAPSHOT SECTION
-# # ---------------------------------------------------
-
-# st.markdown("## 🌤️ Hoy")
-
-# cols = st.columns(5)
-# for col, (_, row) in zip(cols, df.iterrows()):
-#     col.metric(
-#         row["District"], f"{row['Temperature']}°C", f"Humedad: {row['Humidity']}%"
-#     )
-
-# ---------------------------------------------------
-# COMPARE DISTRICTS
-# ---------------------------------------------------
 
 st.markdown("### 📊 Análisis Comparativo")
 col_sel, col_graph = st.columns([1, 2])
@@ -200,7 +194,7 @@ with col_sel:
     )
 
     filtered_df = df[df["District"].isin(target_districts)]
-
+fecha = df["Fecha"].iloc[0]
 with col_graph:
     if not filtered_df.empty:
         fig = px.bar(
@@ -208,31 +202,21 @@ with col_graph:
             x="District",
             y="Temperature",
             color="Temperature",
-            title="Temperatura por Distrito Seleccionado",
+            labels={"Temperature": "Temperatura (°C)", "District": "Distritos"},
+            # layout={
+            #     "title": {
+            #         "text": f"TEMPERATURA POR DISTRITOS SELECCIONADOS",
+            #         "subtitle": f"FECHA: {fecha}",
+            #     }
+            # },
+            title=f"TEMPERATURA POR DISTRITOS SELECCIONADOS",
+            subtitle=f"FECHA: {fecha}",
             color_continuous_scale="Viridis",
         )
+        # fig.update_layout(title_x=0.3)
+        fig.update_layout(hovermode="x unified", height=500)
         st.plotly_chart(fig, width="stretch")
-# st.markdown("## 📊 Analisis Comparativo")
 
-# districts = df["District"].tolist()
-
-# col1, col2 = st.columns(2)
-# d1 = col1.selectbox("Distrito A", districts, index=1)
-# d2 = col2.selectbox("Distrito B", districts)
-
-# compare_df = df[df["District"].isin([d1, d2])]
-
-# fig = px.bar(
-#     compare_df, x="District", y=["Temperature", "Humidity", "Wind"], barmode="group"
-# )
-
-# fig.update_layout(transition_duration=500)
-
-# st.plotly_chart(fig, width="stretch")
-
-# ---------------------------------------------------
-# ALERTS SECTION
-# ---------------------------------------------------
 
 st.markdown("### 🚨 Monitor de Alertas")
 hot_districts = (
@@ -243,10 +227,10 @@ windy_districts = df[df["Wind"] > 7]["District"].tolist()
 c1, c2 = st.columns(2)
 with c1:
     if hot_districts:
-        st.warning(f"🌡️ **Temperatura elevada:** {', '.join(hot_districts)}")
+        st.warning(f"🌡️ **Temperatura elevada (> 24°C):** {', '.join(hot_districts)}")
 with c2:
     if windy_districts:
-        st.error(f"🌬️ **Vientos fuertes:** {', '.join(windy_districts)}")
+        st.error(f"🌬️ **Vientos fuertes (> 7 m/s):** {', '.join(windy_districts)}")
 
 # ---------------------------------------------------
 # FOOTER
@@ -254,5 +238,5 @@ with c2:
 
 st.markdown("---")
 st.caption(
-    "Datos obtenidos de OpenWeather | Actualizado cada 15 minutos | Hecho por Red Nimbus"
+    "Datos obtenidos de la API Open-meteo | Actualizado cada 15 minutos | Hecho por Red Nimbus"
 )
