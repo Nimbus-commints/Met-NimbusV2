@@ -145,6 +145,8 @@ if "master_df" not in st.session_state:
                 pronosticos_data.append(
                     {
                         "District": props["DISTRITO"],
+                        "lat": props["lat"],
+                        "lon": props["lon"],
                         "Fechas": parse_time(t),
                         "Temperature": temp,
                         "Precipitation": pp,
@@ -301,7 +303,8 @@ with c2:
 
 # ---------------------------------------------------
 # DATA PRONOSTICADA TEMPERATURA, AGREGAR LUEGO HUMEDAD
-st.subheader("📈 Pronósticos para los próximos 7 días")
+st.markdown("### PRONOSTICOS")
+st.subheader("📈 Próximos 7 días")
 col_sel_forecast, col_graph_forecast = st.columns([1, 2])
 
 with col_sel_forecast:
