@@ -360,6 +360,85 @@ with col_graph_forecast:
         else:
             st.info("Selecciona al menos un distrito para mostrar el pronóstico.")
 
+# st.subheader(" Animacion Temporal")
+
+unique_times = sorted(pronosticos["Fechas"].unique())
+selected_time = st.select_slider(
+    "Selecciona fecha y hora:",
+    options=unique_times,
+    format_func=lambda x: x.strftime("%d-%m %H:%M"),
+)
+
+
+time_filtered = pronosticos[pronosticos["Fechas"] == selected_time].copy()
+scale_factor = 800
+
+time_filtered["elevation"] = time_filtered["Precipitation"] * scale_factor
+
+# Color azul según intensidad
+max_prec = pronosticos["Precipitation"].max()
+
+time_filtered["color_r"] = 0
+time_filtered["color_g"] = (
+    (time_filtered["Precipitation"] / (max_prec + 1e-6)) * 150
+).astype(int)
+time_filtered["color_b"] = 255
+
+# heatmap_layer = pdk.Layer(
+#     "HeatmapLayer",
+#     data=time_filtered,
+#     get_position="[lon, lat]",
+#     get_weight="Temperature",
+#     radiusPixels=80,
+#     aggregation=pdk.types.String("MEAN"),
+#     colorRange=[
+#         [0, 0, 255],
+#         [0, 128, 255],
+#         [0, 255, 255],
+#         [255, 255, 0],
+#         [255, 128, 0],
+#         [255, 0, 0],
+#     ],
+#     intensity=1,
+#     threshold=0.05,
+# )
+
+precipitation_layer = pdk.Layer(
+    "ColumnLayer",
+    data=time_filtered,
+    get_position="[lon, lat]",
+    get_elevation="elevation",
+    elevationScale=1,
+    radius=500,
+    get_fill_color="[color_r, color_g, color_b]",
+    pickable=True,
+    extruded=True,
+)
+deck_temporal = pdk.Deck(
+    layers=[precipitation_layer],
+    initial_view_state=view_state,
+    tooltip={
+        "html": "<b>{District}</b><br/>Precip: {Precipitation} mm",
+        "style": {
+            "backgroundColor": "black",
+            "color": "white",
+        },
+    },
+)
+
+st.pydeck_chart(deck_temporal)
+# st.write(
+#     time_filtered[["District", "Temperature"]].sort_values(
+#         "Temperature", ascending=False
+#     )
+# )
+st.write(
+    time_filtered[["District", "Precipitation"]].sort_values(
+        "Precipitation", ascending=False
+    )
+)
+
+
 # ---------------------------------------------------
 # FOOTER
 # ---------------------------------------------------
