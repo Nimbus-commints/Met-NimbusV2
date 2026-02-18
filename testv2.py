@@ -8,6 +8,7 @@ import os
 import concurrent.futures
 from datetime import datetime
 from dotenv import load_dotenv
+import time
 
 # ---------------------------------------------------
 # CONFIG
@@ -16,14 +17,20 @@ st.set_page_config(
     layout="wide", page_title="Red Nimbus - Weather Dashboard", page_icon="nimbu.ico"
 )
 load_dotenv()
-# API_KEY = os.getenv("OPENWEATHER_API_KEY")
 
 
-if "zoom" not in st.session_state:
-    st.session_state.zoom = 10
-
-st.title("LIMA")
-st.subheader("Mapa de Temperatura 3D")
+# ---------------------------------------------------
+# HELPER FUNCTIONS
+# ---------------------------------------------------
+def parse_time(time_str):
+    """Parse time string with multiple possible formats."""
+    formats = ["%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"]
+    for fmt in formats:
+        try:
+            return datetime.strptime(time_str, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"Unable to parse time: {time_str}")
 
 
 # ---------------------------------------------------
@@ -41,6 +48,7 @@ geojson = load_map_data()
 ## NUEVA FUNCION PARA OBTENER DATOS DE CADA DISTRITO
 def get_single_district_weather(feature):
     """Funcion que sera ejecutada en paralelo para cada distrito"""
+    time.sleep(0.3)
     props = feature["properties"]
     lat, lon = props["lat"], props["lon"]
     name = props["DISTRITO"]
@@ -49,12 +57,14 @@ def get_single_district_weather(feature):
     params = {
         "latitude": lat,
         "longitude": lon,
+        "hourly": ["temperature_2m", "precipitation", "relative_humidity_2m"],
         "current": ["temperature_2m", "wind_speed_10m", "relative_humidity_2m"],
         "timezone": "America/Lima",
         "wind_speed_unit": "ms",
     }
     try:
         response = requests.get(url, params=params, timeout=5)
+        response.raise_for_status()
         data = response.json()
         return {
             "name": name,
@@ -62,14 +72,23 @@ def get_single_district_weather(feature):
             "humidity": data["current"]["relative_humidity_2m"],
             "wind": data["current"]["wind_speed_10m"],
             "time": data["current"]["time"],
+            "pronostico": data["hourly"],
+            # "pronostico_tiempo": data["hourly"]["time"],
+            # agregar para humedad y precipitacion luego
         }
-    except:
+    except Exception as e:
+        print(f"Error al obtener datos para {name}: {e}")
         return {
             "name": name,
             "temperature": 20,
             "humidity": 70,
             "wind": 5,
             "time": datetime.now().isoformat(),
+            "pronostico": {
+                "time": [],
+                "temperature_2m": [],
+                "precipitation": [],
+            },
         }
 
 
@@ -82,7 +101,7 @@ if "master_df" not in st.session_state:
 
         # Se ejecuta las peticiones en paralelo (15 hilos a la vez)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             weahter_results = list(
                 executor.map(get_single_district_weather, geojson["features"])
             )
@@ -90,6 +109,7 @@ if "master_df" not in st.session_state:
         weather_map = {res["name"]: res for res in weahter_results}
         district_data = []
         text_data = []
+        pronosticos_data = []
 
         for feature in geojson["features"]:
             props = feature["properties"]
@@ -105,7 +125,7 @@ if "master_df" not in st.session_state:
             district_data.append(
                 {
                     "District": props["DISTRITO"],
-                    "Fecha": datetime.strptime(w["time"], "%Y-%m-%dT%H:%M"),
+                    "Fecha": parse_time(w["time"]),
                     "Temperature": w["temperature"],
                     "Humidity": w["humidity"],
                     "Wind": w["wind"],
@@ -117,9 +137,24 @@ if "master_df" not in st.session_state:
                     "text": props["DISTRITO"],
                 }
             )
+            for t, temp, pp in zip(
+                w["pronostico"]["time"],
+                w["pronostico"]["temperature_2m"],
+                w["pronostico"]["precipitation"],
+            ):
+                pronosticos_data.append(
+                    {
+                        "District": props["DISTRITO"],
+                        "Fechas": parse_time(t),
+                        "Temperature": temp,
+                        "Precipitation": pp,
+                    }
+                )
+
         st.session_state.master_df = pd.DataFrame(district_data)
         st.session_state.enriched_geojson = geojson
         st.session_state.text_layer_data = text_data
+        st.session_state.pronosticos_df = pd.DataFrame(pronosticos_data)
         status.update(
             label="✅ Datos cargados correctamente", state="complete", expanded=False
         )
@@ -128,7 +163,23 @@ if "master_df" not in st.session_state:
 df = st.session_state.master_df
 geojson = st.session_state.enriched_geojson
 text_data = st.session_state.text_layer_data
+pronosticos = st.session_state.pronosticos_df
 
+# COMIENZO DE LA APLICACION
+if "zoom" not in st.session_state:
+    st.session_state.zoom = 9
+
+fecha = df["Fecha"].iloc[0]
+col1, col2 = st.columns([1, 2])
+with col1:
+    st.title("LIMA")
+    st.subheader("Mapa de Temperatura 3D")
+with col2:
+    st.title("Última actualización:")
+    st.subheader(
+        f"FECHA: {fecha.strftime('%d-%m-%Y')} | HORA: {fecha.strftime('%H:%M')}"
+    )
+    # st.subheader(f"HORA: {fecha.strftime('%H:%M')}")
 # ---------------------------------------------------
 # 3D MAP
 # ---------------------------------------------------
@@ -155,19 +206,16 @@ layer_geo = pdk.Layer(
 )
 
 
-zoom = view_state.zoom
-size_scale = 10 * (2**zoom)
-# opactity = 255 if st.session_state.zoom >= 9 else 0  # Ajusta el tamaño según el
+# Ajusta el tamaño según el
+
 text_layer = pdk.Layer(
     "TextLayer",
     text_data,
     pickable=False,
     get_position="position",
     get_text="text",
-    # sizeMinPixels=6,
     sizeMaxPixels=10,
     get_color="[255, 255, 255]",  # Ajusta la opacidad según el zoom
-    # getPixelOffset="[0, -5]",  # Mover el texto hacia arriba
     background=True,
     get_background_color="[0, 0, 0, 180]",
     backgroundBorderRadius=3,
@@ -175,12 +223,9 @@ text_layer = pdk.Layer(
     get_alignment_baseline="'bottom'",
     get_text_anchor="'middle'",
     billboard=True,
-    # sizeUnits="meters",  # 👈 clave
     get_size=16,
     size_min_pixels=6,
-    # sizeScale=size_scale,  # 👈 dinámico
 )
-
 
 deck = pdk.Deck(
     layers=[layer_geo, text_layer],
@@ -203,7 +248,6 @@ deck = pdk.Deck(
 
 st.pydeck_chart(deck)
 
-
 st.markdown("### 📊 Análisis Comparativo")
 col_sel, col_graph = st.columns([1, 2])
 
@@ -215,7 +259,8 @@ with col_sel:
     )
 
     filtered_df = df[df["District"].isin(target_districts)]
-fecha = df["Fecha"].iloc[0]
+
+# fecha = df["Fecha"].iloc[0]
 with col_graph:
     if not filtered_df.empty:
         fig = px.bar(
@@ -252,6 +297,65 @@ with c1:
 with c2:
     if windy_districts:
         st.error(f"🌬️ **Vientos fuertes (> 7 m/s):** {', '.join(windy_districts)}")
+
+
+# ---------------------------------------------------
+# DATA PRONOSTICADA TEMPERATURA, AGREGAR LUEGO HUMEDAD
+st.subheader("📈 Pronósticos para los próximos 7 días")
+col_sel_forecast, col_graph_forecast = st.columns([1, 2])
+
+with col_sel_forecast:
+    selected_districts_forecast = st.multiselect(
+        "Selecciona distritos para pronóstico:",
+        pronosticos["District"].unique(),
+        default=pronosticos["District"].unique()[:3],
+        key="forecast_selector",
+    )
+    filtered_forecast = pronosticos[
+        pronosticos["District"].isin(selected_districts_forecast)
+    ]
+
+tab1, tab2 = st.tabs(["📈 Temperatura", "☔ Precipitación"])
+
+
+with col_graph_forecast:
+    with tab1:
+        if not filtered_forecast.empty:
+            fig_temp = px.line(
+                filtered_forecast,
+                x="Fechas",
+                y="Temperature",
+                color="District",
+                title=f"Pronóstico de Temperatura",
+                labels={
+                    "Temperature": "Temperatura (°C)",
+                    "Fechas": "Fecha y Hora",
+                    "District": "Distrito",
+                },
+            )
+            fig_temp.update_layout(hovermode="x unified", height=500)
+            st.plotly_chart(fig_temp, width="stretch")
+        else:
+            st.info("Selecciona al menos un distrito para mostrar el pronóstico.")
+    with tab2:
+        if not filtered_forecast.empty:
+            fig_precip = px.bar(
+                filtered_forecast,
+                x="Fechas",
+                y="Precipitation",
+                color="District",
+                title=f"Pronóstico de Precipitación",
+                labels={
+                    "Precipitation": "Precipitación (mm)",
+                    "Fechas": "Fecha y Hora",
+                    "District": "Distrito",
+                },
+                color_continuous_scale="Blues",
+            )
+            fig_precip.update_layout(hovermode="x unified", height=500)
+            st.plotly_chart(fig_precip, width="stretch")
+        else:
+            st.info("Selecciona al menos un distrito para mostrar el pronóstico.")
 
 # ---------------------------------------------------
 # FOOTER
