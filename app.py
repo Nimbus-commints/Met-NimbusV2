@@ -11,7 +11,7 @@ from datetime import datetime
 # CONFIG
 # ---------------------------------------------------
 st.set_page_config(
-    layout="wide", page_title="Red Nimbus - Weather Dashboard", page_icon="nimbu.ico"
+    layout="wide", page_title="Barlovento - DashBoard Lima", page_icon="barlo-logo.ico"
 )
 
 # Constantes
@@ -131,15 +131,15 @@ with st.sidebar:
         """
         <div style="text-align:center; padding: 10px 0 5px 0;">
             <span style="font-size:2rem;">🌩️</span>
-            <h2 style="margin:0; padding:0;">Red Nimbus</h2>
-            <p style="margin:0; color:#888; font-size:0.85rem;">Monitoreo Climático de Lima</p>
+            <h2 style="margin:0; padding:0;">Barlovento - Clima y Geografia </h2>
+            <p style="margin:0; color:#888; font-size:0.85rem;">Monitoreo del tiempo - Lima</p>
         </div>
         <hr style="margin:10px 0; border-color:#333;">
         """,
         unsafe_allow_html=True,
     )
 
-    if st.button("🔄 Actualizar datos", use_container_width=True):
+    if st.button("🔄 Actualizar datos", width='stretch'):
         for key in ["master_df", "enriched_geojson", "text_layer_data", "pronosticos_df", "data_loaded_at"]:
             st.session_state.pop(key, None)
         st.rerun()
@@ -148,9 +148,9 @@ with st.sidebar:
         elapsed = _time.time() - st.session_state.data_loaded_at
         mins = int(elapsed // 60)
         if mins > 0:
-            st.caption(f"⏱️ Datos cargados hace {mins} min")
+            st.caption(f"Datos cargados hace {mins} min")
         else:
-            st.caption("⏱️ Datos recién cargados")
+            st.caption("Datos recién cargados")
 
     # Placeholder para resumen — se llena después de cargar datos
     sidebar_stats = st.empty()
@@ -378,9 +378,10 @@ with col_graph:
             color="Temperature",
             labels={"Temperature": "Temperatura (°C)", "District": "Distritos"},
             title="TEMPERATURA POR DISTRITOS SELECCIONADOS",
-            subtitle=f"FECHA: {fecha}",
+            subtitle=f"FECHA: {fecha.strftime('%d-%m-%Y %H:%M')}",
             color_continuous_scale="Viridis",
         )
+        fig.update_traces(hovertemplate="<b>%{x}</b><br>%{y:.1f}°C<extra></extra>")
         fig.update_layout(hovermode="x unified", height=500)
         st.plotly_chart(fig, width="stretch")
 
@@ -490,9 +491,9 @@ with col_graph_forecast:
             st.info("Selecciona al menos un distrito para mostrar el pronóstico.")
 
 # ---------------------------------------------------
-# ANIMACIÓN TEMPORAL DE PRECIPITACIÓN
+# ANIMACIÓN TEMPORAL
 # ---------------------------------------------------
-st.markdown("### 🌧️ Precipitación por hora")
+st.markdown("### 🕐 Explorador temporal")
 unique_times = sorted(pronosticos["Fechas"].unique())
 selected_time = st.select_slider(
     "Selecciona fecha y hora:",
@@ -501,16 +502,22 @@ selected_time = st.select_slider(
 )
 
 time_filtered = pronosticos[pronosticos["Fechas"] == selected_time].copy()
-time_filtered["elevation"] = time_filtered["Precipitation"] * PRECIPITATION_SCALE
 
-max_prec = pronosticos["Precipitation"].max()
-time_filtered["color_r"] = 0
-time_filtered["color_g"] = (
-    (time_filtered["Precipitation"] / (max_prec + 1e-6)) * 150
+# Mostrar temperatura en columnas 3D (siempre tiene datos) + precipitación como color
+time_filtered["elevation"] = time_filtered["Temperature"] * ELEVATION_SCALE
+max_temp = pronosticos["Temperature"].max()
+min_temp = pronosticos["Temperature"].min()
+temp_range = max_temp - min_temp + 1e-6
+# Color: azul (frío) → rojo (caliente)
+time_filtered["color_r"] = (
+    ((time_filtered["Temperature"] - min_temp) / temp_range) * 255
 ).astype(int)
-time_filtered["color_b"] = 255
+time_filtered["color_g"] = 60
+time_filtered["color_b"] = (
+    ((max_temp - time_filtered["Temperature"]) / temp_range) * 255
+).astype(int)
 
-precipitation_layer = pdk.Layer(
+temporal_layer = pdk.Layer(
     "ColumnLayer",
     data=time_filtered,
     get_position="[lon, lat]",
@@ -523,10 +530,13 @@ precipitation_layer = pdk.Layer(
 )
 
 deck_temporal = pdk.Deck(
-    layers=[precipitation_layer],
+    layers=[temporal_layer],
     initial_view_state=view_state,
     tooltip={
-        "html": "<b>{District}</b><br/>Precip: {Precipitation} mm",
+        "html": "<b>{District}</b><br/>"
+        "Temp: {Temperature}°C<br/>"
+        "Precip: {Precipitation} mm<br/>"
+        "Humedad: {Humidity}%",
         "style": {
             "backgroundColor": "black",
             "color": "white",
@@ -536,39 +546,38 @@ deck_temporal = pdk.Deck(
 
 st.pydeck_chart(deck_temporal)
 
-st.dataframe(
-    time_filtered[["District", "Precipitation", "Temperature", "Humidity"]]
-    .sort_values("Precipitation", ascending=False)
-    .reset_index(drop=True),
-    use_container_width=True,
-)
+with st.expander("📋 Ver datos de la hora seleccionada"):
+    st.dataframe(
+        time_filtered[["District", "Temperature", "Precipitation", "Humidity"]]
+        .sort_values("Temperature", ascending=False)
+        .reset_index(drop=True),
+        width='stretch',
+    )
 
 # ---------------------------------------------------
-# EXPORTAR DATOS
+# EXPORTAR DATOS (compacto en el footer)
 # ---------------------------------------------------
-st.markdown("### 📥 Exportar datos")
-col_exp1, col_exp2 = st.columns(2)
+st.markdown("---")
+col_footer, col_exp1, col_exp2 = st.columns([2, 1, 1])
+with col_footer:
+    st.caption(
+        "Datos obtenidos de la API Open-Meteo | Auto-actualización cada 15 minutos | Hecho por [Red Nimbus](https://rednimbus.dev)"
+    )
 with col_exp1:
     csv_actual = df.to_csv(index=False).encode("utf-8")
     st.download_button(
-        "Descargar datos actuales (CSV)",
+        "⬇ Datos actuales",
         csv_actual,
         "lima_weather_actual.csv",
         "text/csv",
+        width='stretch',
     )
 with col_exp2:
     csv_forecast = pronosticos.to_csv(index=False).encode("utf-8")
     st.download_button(
-        "Descargar pronóstico 7 días (CSV)",
+        "⬇ Pronóstico 7 días",
         csv_forecast,
         "lima_weather_pronostico.csv",
         "text/csv",
+        width='stretch',
     )
-
-# ---------------------------------------------------
-# FOOTER
-# ---------------------------------------------------
-st.markdown("---")
-st.caption(
-    "Datos obtenidos de la API Open-Meteo | Auto-actualización cada 15 minutos | Hecho por Red Nimbus"
-)
