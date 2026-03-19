@@ -265,28 +265,55 @@ if "zoom" not in st.session_state:
     st.session_state.zoom = 9
 
 fecha = df["Fecha"].iloc[0]
-col1, col2 = st.columns([1, 2])
-with col1:
-    st.title("LIMA")
-    st.subheader("Mapa de Temperatura 3D")
-with col2:
-    st.title("Última actualización:")
-    st.subheader(
-        f"FECHA: {fecha.strftime('%d-%m-%Y')} | HORA: {fecha.strftime('%H:%M')}"
-    )
+temp_avg = df["Temperature"].mean()
+temp_max = df["Temperature"].max()
+temp_min = df["Temperature"].min()
 
-# ---------------------------------------------------
-# LEYENDA DE COLORES
-# ---------------------------------------------------
 st.markdown(
-    """
-    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
-        <span style="font-weight:bold; font-size:14px;">Temperatura:</span>
-        <span style="background:rgb(150,110,200); padding:2px 10px; border-radius:4px; color:white;">≤15°C</span>
-        <span style="background:rgb(180,100,135); padding:2px 10px; border-radius:4px; color:white;">18°C</span>
-        <span style="background:rgb(200,90,95); padding:2px 10px; border-radius:4px; color:white;">20°C</span>
-        <span style="background:rgb(220,80,55); padding:2px 10px; border-radius:4px; color:white;">22°C</span>
-        <span style="background:rgb(250,60,15); padding:2px 10px; border-radius:4px; color:white;">≥25°C</span>
+    f"""
+    <div style="
+        background: linear-gradient(135deg, #0d1b2a 0%, #1b2838 50%, #1a3a4a 100%);
+        border-radius: 12px;
+        padding: 24px 32px;
+        margin-bottom: 16px;
+        border: 1px solid #2a4a5a;
+    ">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;">
+            <div>
+                <h1 style="margin:0; font-size:2.2rem; letter-spacing:2px;">
+                    LIMA <span style="font-size:1rem; color:#888; font-weight:normal;">Mapa de Temperatura 3D</span>
+                </h1>
+            </div>
+            <div style="text-align:right;">
+                <span style="color:#aaa; font-size:0.85rem;">Última actualización</span><br>
+                <span style="font-size:1.1rem; font-weight:600;">
+                    📅 {fecha.strftime('%d-%m-%Y')} &nbsp; 🕐 {fecha.strftime('%H:%M')}
+                </span>
+            </div>
+        </div>
+        <div style="display:flex; gap:24px; margin-top:16px; flex-wrap:wrap;">
+            <div style="background:rgba(255,255,255,0.05); border-radius:8px; padding:10px 20px; text-align:center; min-width:100px;">
+                <div style="color:#ff6b6b; font-size:1.5rem; font-weight:700;">{temp_max:.1f}°</div>
+                <div style="color:#aaa; font-size:0.75rem;">MÁXIMA</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.05); border-radius:8px; padding:10px 20px; text-align:center; min-width:100px;">
+                <div style="color:#ffd93d; font-size:1.5rem; font-weight:700;">{temp_avg:.1f}°</div>
+                <div style="color:#aaa; font-size:0.75rem;">PROMEDIO</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.05); border-radius:8px; padding:10px 20px; text-align:center; min-width:100px;">
+                <div style="color:#74b9ff; font-size:1.5rem; font-weight:700;">{temp_min:.1f}°</div>
+                <div style="color:#aaa; font-size:0.75rem;">MÍNIMA</div>
+            </div>
+            <div style="flex-grow:1;"></div>
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                <span style="color:#aaa; font-size:0.8rem;">Escala:</span>
+                <span style="background:rgb(150,110,200); padding:3px 10px; border-radius:12px; color:white; font-size:0.75rem;">≤15°C</span>
+                <span style="background:rgb(180,100,135); padding:3px 10px; border-radius:12px; color:white; font-size:0.75rem;">18°C</span>
+                <span style="background:rgb(200,90,95); padding:3px 10px; border-radius:12px; color:white; font-size:0.75rem;">20°C</span>
+                <span style="background:rgb(220,80,55); padding:3px 10px; border-radius:12px; color:white; font-size:0.75rem;">22°C</span>
+                <span style="background:rgb(250,60,15); padding:3px 10px; border-radius:12px; color:white; font-size:0.75rem;">≥25°C</span>
+            </div>
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -356,9 +383,22 @@ deck = pdk.Deck(
 st.pydeck_chart(deck)
 
 # ---------------------------------------------------
-# ANÁLISIS COMPARATIVO
+# ANÁLISIS COMPARATIVO + ALERTAS
 # ---------------------------------------------------
-st.markdown("### 📊 Análisis Comparativo")
+st.markdown(
+    """
+    <div style="
+        background: linear-gradient(135deg, #0d1b2a 0%, #1b2838 50%, #1a3a4a 100%);
+        border-radius: 12px;
+        padding: 20px 28px 12px 28px;
+        margin-bottom: 16px;
+        border: 1px solid #2a4a5a;
+    ">
+        <h3 style="margin:0 0 4px 0;">Análisis Comparativo</h3>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 col_sel, col_graph = st.columns([1, 2])
 
 with col_sel:
@@ -385,10 +425,7 @@ with col_graph:
         fig.update_layout(hovermode="x unified", height=500)
         st.plotly_chart(fig, width="stretch")
 
-# ---------------------------------------------------
-# ALERTAS
-# ---------------------------------------------------
-st.markdown("### 🚨 Monitor de Alertas")
+# --- Alertas inline ---
 hot_districts = (
     df[df["Temperature"] > TEMP_ALERT_THRESHOLD]["District"]
     .sort_values(ascending=False)
@@ -415,7 +452,20 @@ with c2:
 # ---------------------------------------------------
 # PRONÓSTICOS
 # ---------------------------------------------------
-st.markdown("### 📈 Pronósticos - Próximos 7 días")
+st.markdown(
+    """
+    <div style="
+        background: linear-gradient(135deg, #0d1b2a 0%, #1b2838 50%, #1a3a4a 100%);
+        border-radius: 12px;
+        padding: 20px 28px 12px 28px;
+        margin-bottom: 16px;
+        border: 1px solid #2a4a5a;
+    ">
+        <h3 style="margin:0 0 4px 0;">Pronósticos - Próximos 7 días</h3>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 col_sel_forecast, col_graph_forecast = st.columns([1, 2])
 
 with col_sel_forecast:
@@ -493,7 +543,20 @@ with col_graph_forecast:
 # ---------------------------------------------------
 # ANIMACIÓN TEMPORAL
 # ---------------------------------------------------
-st.markdown("### 🕐 Explorador temporal")
+st.markdown(
+    """
+    <div style="
+        background: linear-gradient(135deg, #0d1b2a 0%, #1b2838 50%, #1a3a4a 100%);
+        border-radius: 12px;
+        padding: 20px 28px 12px 28px;
+        margin-bottom: 16px;
+        border: 1px solid #2a4a5a;
+    ">
+        <h3 style="margin:0 0 4px 0;">🕐 Explorador temporal</h3>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 unique_times = sorted(pronosticos["Fechas"].unique())
 selected_time = st.select_slider(
     "Selecciona fecha y hora:",
