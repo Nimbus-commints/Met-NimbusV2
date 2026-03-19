@@ -127,8 +127,19 @@ def fetch_all_districts_weather(features, max_retries=3):
 # SIDEBAR
 # ---------------------------------------------------
 with st.sidebar:
-    st.title("⚙️ Red Nimbus")
-    if st.button("🔄 Actualizar datos"):
+    st.markdown(
+        """
+        <div style="text-align:center; padding: 10px 0 5px 0;">
+            <span style="font-size:2rem;">🌩️</span>
+            <h2 style="margin:0; padding:0;">Red Nimbus</h2>
+            <p style="margin:0; color:#888; font-size:0.85rem;">Monitoreo Climático de Lima</p>
+        </div>
+        <hr style="margin:10px 0; border-color:#333;">
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if st.button("🔄 Actualizar datos", use_container_width=True):
         for key in ["master_df", "enriched_geojson", "text_layer_data", "pronosticos_df", "data_loaded_at"]:
             st.session_state.pop(key, None)
         st.rerun()
@@ -136,7 +147,13 @@ with st.sidebar:
     if "data_loaded_at" in st.session_state:
         elapsed = _time.time() - st.session_state.data_loaded_at
         mins = int(elapsed // 60)
-        st.caption(f"Datos cargados hace {mins} min" if mins > 0 else "Datos recién cargados")
+        if mins > 0:
+            st.caption(f"⏱️ Datos cargados hace {mins} min")
+        else:
+            st.caption("⏱️ Datos recién cargados")
+
+    # Placeholder para resumen — se llena después de cargar datos
+    sidebar_stats = st.empty()
 
 
 # ---------------------------------------------------
@@ -214,6 +231,32 @@ df = st.session_state.master_df
 geojson = st.session_state.enriched_geojson
 text_data = st.session_state.text_layer_data
 pronosticos = st.session_state.pronosticos_df
+
+# Rellenar sidebar con estadísticas
+with sidebar_stats.container():
+    st.markdown("<hr style='margin:10px 0; border-color:#333;'>", unsafe_allow_html=True)
+    st.markdown("##### 📊 Resumen actual")
+
+    _col1, _col2 = st.columns(2)
+    _col1.metric("🌡️ Máx", f"{df['Temperature'].max():.1f}°C")
+    _col2.metric("❄️ Mín", f"{df['Temperature'].min():.1f}°C")
+
+    _col3, _col4 = st.columns(2)
+    _col3.metric("💨 Viento máx", f"{df['Wind'].max():.1f} m/s")
+    _col4.metric("💧 Hum. prom", f"{df['Humidity'].mean():.0f}%")
+
+    hottest = df.loc[df["Temperature"].idxmax()]
+    coldest = df.loc[df["Temperature"].idxmin()]
+    st.markdown("<hr style='margin:10px 0; border-color:#333;'>", unsafe_allow_html=True)
+    st.markdown("##### 🏆 Extremos")
+    st.markdown(f"🔴 **Más caliente:** {hottest['District']} ({hottest['Temperature']:.1f}°C)")
+    st.markdown(f"🔵 **Más frío:** {coldest['District']} ({coldest['Temperature']:.1f}°C)")
+
+    st.markdown("<hr style='margin:10px 0; border-color:#333;'>", unsafe_allow_html=True)
+    st.markdown("##### ℹ️ Datos")
+    st.caption(f"📍 {len(df)} distritos monitoreados")
+    st.caption("📅 Pronóstico: 7 días (168 horas)")
+    st.caption("🌐 Fuente: Open-Meteo API")
 
 # ---------------------------------------------------
 # HEADER
@@ -402,6 +445,7 @@ with col_graph_forecast:
                     "District": "Distrito",
                 },
             )
+            fig_temp.update_traces(hovertemplate="%{y:.1f}°C")
             fig_temp.update_layout(hovermode="x unified", height=500)
             st.plotly_chart(fig_temp, width="stretch")
         else:
@@ -420,6 +464,7 @@ with col_graph_forecast:
                     "District": "Distrito",
                 },
             )
+            fig_precip.update_traces(hovertemplate="%{y:.2f} mm")
             fig_precip.update_layout(hovermode="x unified", height=500)
             st.plotly_chart(fig_precip, width="stretch")
         else:
@@ -438,6 +483,7 @@ with col_graph_forecast:
                     "District": "Distrito",
                 },
             )
+            fig_hum.update_traces(hovertemplate="%{y:.0f}%")
             fig_hum.update_layout(hovermode="x unified", height=500)
             st.plotly_chart(fig_hum, width="stretch")
         else:
